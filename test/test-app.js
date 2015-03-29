@@ -43,25 +43,36 @@ function linkDeps(skip) {
 }
 
 
-function withComposer(cb) {
+function needsComposer(cb) {
     if (!cb) {
         cb = function () {};
     }
-    exec('php -r "readfile(\'https://getcomposer.org/installer\');" | php', function () {
-        fs.copySync(__dirname + '/temp/app/config/parameters.yml.dist', __dirname + '/temp/app/config/parameters.yml');
-        exec('php composer.phar install', function (error, stdout) {
-            cb(error, stdout);
+    return function() {
+        exec('php -r "readfile(\'https://getcomposer.org/installer\');" | php', function (error) {
+            expect(error).to.be.null;
+            fs.copySync(__dirname + '/temp/app/config/parameters.yml.dist', __dirname + '/temp/app/config/parameters.yml');
+            exec('php composer.phar install', function (error, stdout) {
+                expect(error).to.be.null;
+                cb(error, stdout);
+            });
         });
-    });
+    };
 }
 
-function withJspm(cb) {
+function needsJspm(cb) {
     if (!cb) {
         cb = function () {};
     }
-    exec('jspm install', function (error, stdout) {
-        cb(error, stdout);
-    });
+    return function(){
+        exec('jspm install', function (error, stdout) {
+            expect(error).to.be.null;
+            cb(error, stdout);
+        });
+    };
+}
+
+function needsJspmAndComposer(cb) {
+    return needsComposer(needsJspm(cb));
 }
 
 
@@ -76,8 +87,11 @@ describe('grunt-symfony generator', function () {
         loader: 'requirejs'
     };
 
-    function testConfiguration(config, conflictingModules) {
+    function testConfiguration(config, precondition, conflictingModules) {
         var opts = _.assign(defaultOptions, config || {});
+        if (!_.isFunction(precondition)) {
+            precondition = function(cb){ return function(){cb();};};
+        }
         return function () {
             before(function (done) {
                 this.timeout(60000);
@@ -103,58 +117,47 @@ describe('grunt-symfony generator', function () {
 
             it('should build assets', function (done) {
                 this.timeout(100000);
-                if (opts.loader === 'jspm') {
-                    withJspm(function (error) {
-                        expect(error).to.be.null;
-                        exec('grunt assets', function (error, stdout) {
-                            expect(stdout).to.contain('Done, without errors.');
-                            done();
-                        });
-                    });
-                } else {
+                precondition(function() {
                     exec('grunt assets', function (error, stdout) {
                         expect(stdout).to.contain('Done, without errors.');
                         done();
                     });
-                }
-                //withComposer(function (error) {
-                //    expect(error).to.be.null;
-
-                //});
-
+                })();
             });
         };
     }
 
-    describe('running app with jspm and without preprocessor,framework ', testConfiguration({loader: 'jspm'}));
-    describe('running app with jspm, less and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'less'}));
-    describe('running app with jspm, sass (ruby) and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false}, ['grunt-sass']));
-    describe('running app with jspm, sass (node) and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true}, ['grunt-contrib-sass']));
-    describe('running app with jspm, stylus and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'stylus'}));
+    describe('running app with jspm, critical and without preprocessor,framework ', testConfiguration({useCritical: true, loader: 'jspm'}, needsJspmAndComposer));
 
-    describe('running app with jspm, uikit and without preprocessor ', testConfiguration({loader: 'jspm'}));
-    describe('running app with jspm, less and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'uikit'}));
-    describe('running app with jspm, sass (ruby) and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'uikit'}, ['grunt-sass']));
-    describe('running app with jspm, sass (node) and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'uikit'}, ['grunt-contrib-sass']));
-    describe('running app with jspm, stylus and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'uikit'}));
+    describe('running app with jspm and without preprocessor,framework ', testConfiguration({loader: 'jspm'}, needsJspm));
+    describe('running app with jspm, less and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'less'}, needsJspm));
+    describe('running app with jspm, sass (ruby) and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false}, needsJspm, ['grunt-sass']));
+    describe('running app with jspm, sass (node) and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true}, needsJspm, ['grunt-contrib-sass']));
+    describe('running app with jspm, stylus and without framework ', testConfiguration({loader: 'jspm',preprocessor: 'stylus'}, needsJspm));
 
-    describe('running app with jspm, bootstrap and without preprocessor ', testConfiguration({loader: 'jspm'}));
-    describe('running app with jspm, less and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'bootstrap'}));
-    describe('running app with jspm, sass (ruby) and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'bootstrap'}, ['grunt-sass']));
-    describe('running app with jspm, sass (node) and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'bootstrap'}, ['grunt-contrib-sass']));
-    describe('running app with jspm, stylus and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'bootstrap'}));
+    describe('running app with jspm, uikit and without preprocessor ', testConfiguration({loader: 'jspm'}, needsJspm));
+    describe('running app with jspm, less and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'uikit'}, needsJspm));
+    describe('running app with jspm, sass (ruby) and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'uikit'}, needsJspm, ['grunt-sass']));
+    describe('running app with jspm, sass (node) and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'uikit'}, needsJspm, ['grunt-contrib-sass']));
+    describe('running app with jspm, stylus and uikit ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'uikit'}, needsJspm));
 
-    describe('running app with jspm, foundation and without preprocessor ', testConfiguration({loader: 'jspm'}));
-    describe('running app with jspm, less and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'foundation'}));
-    describe('running app with jspm, sass (ruby) and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'foundation'}, ['grunt-sass']));
-    describe('running app with jspm, sass (node) and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'foundation'}, ['grunt-contrib-sass']));
-    describe('running app with jspm, stylus and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'foundation'}));
+    describe('running app with jspm, bootstrap and without preprocessor ', testConfiguration({loader: 'jspm'}, needsJspm));
+    describe('running app with jspm, less and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'bootstrap'}, needsJspm));
+    describe('running app with jspm, sass (ruby) and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'bootstrap'}, needsJspm, ['grunt-sass']));
+    describe('running app with jspm, sass (node) and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'bootstrap'}, needsJspm, ['grunt-contrib-sass']));
+    describe('running app with jspm, stylus and bootstrap ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'bootstrap'}, needsJspm));
 
-    describe('running app with jspm, pure and without preprocessor ', testConfiguration({loader: 'jspm'}));
-    describe('running app with jspm, less and pure ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'pure'}));
-    describe('running app with jspm, sass (ruby) and pure ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'pure'}, ['grunt-sass']));
-    describe('running app with jspm, sass (node) and pure ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'pure'}, ['grunt-contrib-sass']));
-    describe('running app with jspm, stylus and pure ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'pure'}));
+    describe('running app with jspm, foundation and without preprocessor ', testConfiguration({loader: 'jspm'}, needsJspm));
+    describe('running app with jspm, less and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'foundation'}, needsJspm));
+    describe('running app with jspm, sass (ruby) and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'foundation'}, needsJspm, ['grunt-sass']));
+    describe('running app with jspm, sass (node) and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'foundation'}, needsJspm, ['grunt-contrib-sass']));
+    describe('running app with jspm, stylus and foundation ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'foundation'}, needsJspm));
+
+    describe('running app with jspm, pure and without preprocessor ', testConfiguration({loader: 'jspm'}, needsJspm));
+    describe('running app with jspm, less and pure ', testConfiguration({loader: 'jspm',preprocessor: 'less',framework: 'pure'}, needsJspm));
+    describe('running app with jspm, sass (ruby) and pure ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: false,framework: 'pure'}, needsJspm, ['grunt-sass']));
+    describe('running app with jspm, sass (node) and pure ', testConfiguration({loader: 'jspm',preprocessor: 'sass',libsass: true,framework: 'pure'}, needsJspm, ['grunt-contrib-sass']));
+    describe('running app with jspm, stylus and pure ', testConfiguration({loader: 'jspm',preprocessor: 'stylus',framework: 'pure'}, needsJspm));
 
     describe('running app with requirejs and without preprocessor,framework ', testConfiguration());
     describe('running app with requirejs, less and without framework ', testConfiguration({preprocessor: 'less'}));
